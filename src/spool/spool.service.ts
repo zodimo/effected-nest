@@ -2,26 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Chunk, Effect, Queue, Ref, SynchronizedRef } from 'effect';
 
 
-export class Spool<T> {
-    private _spool: T[];
-    constructor() {
-        this._spool = [];
-    }
-    offer(item: T): boolean {
-        this._spool.push(item);
-        return true;
-    }
-    takeAll(): T[] {
-        const _spool = [...this._spool];
-        this._spool = [];
-        return _spool;
-    }
-    get size(): number {
-        return this._spool.length;
-    }
-}
-
-export type SpoolRef<T> = Ref.Ref<Spool<T>>;
+export type SpoolRef<T> = SynchronizedRef.SynchronizedRef<Effect.Effect<Queue.Queue<T>>>;
 export type SpoolRefEff<T> = Effect.Effect<SpoolRef<T>>;
 
 
@@ -31,13 +12,14 @@ export class SpoolService {
     }
 
     static makeRefSpool<T>(): SpoolRefEff<T> {
-        return Ref.make(new Spool());
+        return SynchronizedRef.make(Queue.unbounded());
     }
 
     getSpool(spoolRefEff: SpoolRefEff<string>) {
         return Effect.gen(function* (_) {
-            const spoolRef = yield* _(spoolRefEff);
-            return yield* _(Ref.get(spoolRef));
+            const syncSpoolRef = yield* _(spoolRefEff);
+            const queueEff = yield* _(SynchronizedRef.get(syncSpoolRef));
+            return yield* _(queueEff);
         })
     }
 
@@ -45,11 +27,12 @@ export class SpoolService {
     offerSpool(spoolRefEff: SpoolRefEff<string>, item: string) {
         return Effect.gen(function* (_) {
             const spoolRef = yield* _(spoolRefEff);
-            return yield* _(Ref.update(spoolRef, (spool) => {
-                spool.offer(item);
-                return spool;
+            return yield* _(SynchronizedRef.updateEffect(spoolRef, (spool) => {
+                return Effect.gen(function* (_) {
+                    const queue = yield* _(spool);
+                    return Queue.offer(queue, item).pipe(Effect.map(_ => queue));
+                });
             }));
-
         });
     }
 
@@ -57,7 +40,8 @@ export class SpoolService {
         const spoolService = this;
         return Effect.gen(function* (_) {
             const spool = yield* _(spoolService.getSpool(spoolRefEff));
-            spoolService.logger.log(`queue size : ${spool.size}, message: ${contextMessage}`);
+            const spoolSize = yield* _(Queue.size(spool));
+            spoolService.logger.log(`queue size : ${spoolSize}, message: ${contextMessage}`);
         });
     }
 
@@ -80,10 +64,15 @@ export class SpoolService {
         return Effect.gen(function* (_) {
             const spoolRef = yield* _(spoolRefEff);
             yield* _(spoolService.logSpoolSize(spoolRefEff, 'Before takeall'));
-            return yield* _(Ref.update(spoolRef, (spool) => {
-                spoolService.doTheWork(spool.takeAll());
-                return spool;
+            return yield* _(SynchronizedRef.updateEffect(spoolRef, (spool) => {
+                return Effect.gen(function* (_) {
+                    const queue = yield* _(spool);
+                    const result = yield* _(queue.takeAll);
+                    spoolService.doTheWork(Chunk.toArray(result));
+                    return Effect.succeed(queue);
+                });
             }));
         });
+
     }
 }
