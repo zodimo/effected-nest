@@ -27,27 +27,24 @@ export type SpoolRefEff<T> = Effect.Effect<SpoolRef<T>>;
 
 export class SpoolService {
 
-    constructor(private logger: Logger, private spoolRefEff: SpoolRefEff<string>) {
-
+    constructor(private logger: Logger) {
     }
 
     static makeRefSpool<T>(): SpoolRefEff<T> {
         return Ref.make(new Spool());
     }
 
-    getSpool() {
-        const spoolService = this;
+    getSpool(spoolRefEff: SpoolRefEff<string>) {
         return Effect.gen(function* (_) {
-            const spoolRef = yield* _(spoolService.spoolRefEff);
+            const spoolRef = yield* _(spoolRefEff);
             return yield* _(Ref.get(spoolRef));
         })
     }
 
 
-    offerSpool(item: string) {
-        const spoolService = this;
+    offerSpool(spoolRefEff: SpoolRefEff<string>, item: string) {
         return Effect.gen(function* (_) {
-            const spoolRef = yield* _(spoolService.spoolRefEff);
+            const spoolRef = yield* _(spoolRefEff);
             return yield* _(Ref.update(spoolRef, (spool) => {
                 spool.offer(item);
                 return spool;
@@ -56,20 +53,20 @@ export class SpoolService {
         });
     }
 
-    logSpoolSize(contextMessage = '') {
+    logSpoolSize(spoolRefEff: SpoolRefEff<string>, contextMessage = '') {
         const spoolService = this;
         return Effect.gen(function* (_) {
-            const spool = yield* _(spoolService.getSpool());
+            const spool = yield* _(spoolService.getSpool(spoolRefEff));
             spoolService.logger.log(`queue size : ${spool.size}, message: ${contextMessage}`);
         });
     }
 
-    spool(item: string) {
+    spool(spoolRefEff: SpoolRefEff<string>, item: string) {
         const spoolService = this;
         return Effect.gen(function* (_) {
             spoolService.logger.log(`offer : ${item}`);
-            yield* _(spoolService.offerSpool(item));
-            yield* _(spoolService.logSpoolSize('After offer'));
+            yield* _(spoolService.offerSpool(spoolRefEff, item));
+            yield* _(spoolService.logSpoolSize(spoolRefEff, 'After offer'));
         });
     }
 
@@ -78,11 +75,11 @@ export class SpoolService {
         items.forEach(item => spoolService.logger.log(`Working with ${item}`));
     }
 
-    flush() {
+    flush(spoolRefEff: SpoolRefEff<string>) {
         const spoolService = this;
         return Effect.gen(function* (_) {
-            const spoolRef = yield* _(spoolService.spoolRefEff);
-            yield* _(spoolService.logSpoolSize('Before takeall'));
+            const spoolRef = yield* _(spoolRefEff);
+            yield* _(spoolService.logSpoolSize(spoolRefEff, 'Before takeall'));
             return yield* _(Ref.update(spoolRef, (spool) => {
                 spoolService.doTheWork(spool.takeAll());
                 return spool;
