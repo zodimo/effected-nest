@@ -12,9 +12,10 @@ export class SpoolController {
     constructor() {
         this.spoolService = new SpoolService(
             new Logger(SpoolService.name),
-            
+
         )
-        this.spoolRefEff=SpoolService.makeRefSpool();
+        this.spoolRefEff = SpoolService.makeRefSpool();
+        this.start().pipe(Effect.runPromise);
     }
 
     @Cron('* * * * * *')
@@ -24,9 +25,13 @@ export class SpoolController {
         this.spoolService.spool(this.spoolRefEff, `Item: ${now}`).pipe(Effect.runPromise);
     }
 
-    @Cron('*/10 * * * * *')
-    flush() {
-        this.logger.log('Running flush');
-        return this.spoolService.flush(this.spoolRefEff,).pipe(Effect.runPromise);
+    start() {
+        // create mutex for 1
+        const spoolController = this;
+        const spoolService = this.spoolService;
+        this.logger.log('Start Deamon if not running..');
+        return Effect.gen(function* (_) {
+            return yield* _(Effect.forkDaemon(spoolService.start(spoolController.spoolRefEff)));
+        });
     }
 }
